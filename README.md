@@ -5,6 +5,8 @@
 现有在线字帖网站的字普遍偏小（多用固定尺寸的模板位图，或按固定 px 渲染字体，放大就糊）。
 这里走矢量路线：汉字是**笔画轮廓路径**，格子大小是自由参数，打印任何尺寸都锐利。
 
+线上：**https://walkerwalker.github.io/zitie/**
+
 ## 跑起来
 
 ```bash
@@ -118,4 +120,25 @@ MVP 已跑通：输入汉字 → 实时 SVG 预览 → 下载矢量 PDF。
 要不要在这种情况下强行留一行空（代价是多翻一页），还没定。
 
 想过但按 MVP 范围**没做**的：拼音标注、基础笔画练习页（横竖撇点折）、空心字描红、
-数字 0-9 页、内置生字表、粘贴整段课文提取、部署上线。
+数字 0-9 页、内置生字表、粘贴整段课文提取。
+
+## 部署
+
+GitHub Pages，`gh-pages` 分支存构建产物（`main` 只放源码，`dist/` 已 gitignore）：
+
+```bash
+npm run build
+cd dist && git init -b gh-pages && git add -A && git commit -m build
+git push -f https://github.com/WalkerWalker/zitie.git HEAD:gh-pages
+```
+
+`vite.config.ts` 里 `base` 只在 `command === 'build'` 时是 `/zitie/`，本地 dev 保持 `/`。
+`dist/.nojekyll` 是给 Pages 用的，不然 Jekyll 会吞掉下划线开头的文件。
+
+线上没有 dev server 那个中间件，`/hanzi/*.json` 一律 404，
+`strokeData.ts` 每个字先白跑一次再回落到 jsDelivr —— 能用，但每个字多一个来回。
+真要省这一跳，就是在 `fetchChar` 里用 `import.meta.env.DEV` 跳过本地那条路径。
+
+**待验证**：微信内置浏览器里能不能下载 PDF。已知微信屏蔽文件下载，
+iOS 顶多预览、且预览页不能「作为文件转发给朋友」，
+所以大概率要改成「把每页渲染成图片，长按发送给朋友」。

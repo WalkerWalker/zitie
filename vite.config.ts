@@ -39,8 +39,9 @@ function hanziData(): Plugin {
   }
 }
 
-export default defineConfig({
-  // GitHub Pages 的项目页在 /zitie/ 下，资源路径要带上这一段
-  base: '/zitie/',
+export default defineConfig(({ command }) => ({
+  // GitHub Pages 的项目页挂在 /zitie/ 下，构建产物的资源路径要带上这一段；
+  // 本地 dev 仍然是 http://localhost:5173/
+  base: command === 'build' ? '/zitie/' : '/',
   plugins: [hanziData()],
-})
+}))
