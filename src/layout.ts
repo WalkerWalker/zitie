@@ -44,7 +44,7 @@ export const DEFAULTS: Config = {
   cols: 5,
   marginMm: 11,
   glyphRatio: 0.72,
-  gridType: 'tian',
+  gridType: 'mi',
   gridColor: 'gray',
   traceDarkness: 0.82,
   fullCount: 3,
