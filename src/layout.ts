@@ -41,7 +41,7 @@ export type Config = {
 }
 
 export const DEFAULTS: Config = {
-  cols: 3,
+  cols: 5,
   marginMm: 11,
   glyphRatio: 0.72,
   gridType: 'tian',

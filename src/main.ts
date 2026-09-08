@@ -3,7 +3,7 @@ import { get, loadChars, type CharData } from './strokeData.ts'
 import { pageToSvg } from './renderSvg.ts'
 import { buildPdf } from './renderPdf.ts'
 
-const LS_KEY = 'zitie.v5'
+const LS_KEY = 'zitie.v6'
 const MAX_PREVIEW = 12
 
 /**
@@ -30,7 +30,7 @@ function loadSaved(): { text: string; cfg: Config } {
   } catch {
     // 存档坏了就用默认值
   }
-  return { text: '日月水火大小人口', cfg: { ...DEFAULTS } }
+  return { text: '汪汪队立大功', cfg: { ...DEFAULTS } }
 }
 
 const saved = loadSaved()
