@@ -52,19 +52,20 @@ export const DEFAULTS: Config = {
 
 /**
  * 层次必须是：黑范字 > 浅灰的字 > 格子虚线。
- * 描红调得很淡之后，虚线要跟着更淡，不然十字线比字还显眼。
+ * 注意 inner 的灰值比描红的 0.82 还深一点，但虚线细、又是断的，看上去仍然退在字后面 ——
+ * 这里比的是「视觉分量」不是 RGB。真按 RGB 排（比描红更淡）米字格就淡到看不见了。
  */
 const GRID_COLORS: Record<GridColor, { frame: RGB; inner: RGB }> = {
-  gray: { frame: [0.6, 0.64, 0.7], inner: [0.88, 0.9, 0.93] },
-  red: { frame: [0.87, 0.55, 0.55], inner: [0.96, 0.86, 0.86] },
-  green: { frame: [0.5, 0.72, 0.57], inner: [0.87, 0.94, 0.89] },
+  gray: { frame: [0.6, 0.64, 0.7], inner: [0.74, 0.77, 0.82] },
+  red: { frame: [0.87, 0.55, 0.55], inner: [0.9, 0.68, 0.68] },
+  green: { frame: [0.5, 0.72, 0.57], inner: [0.7, 0.85, 0.75] },
 }
 
 /** 纯黑打印偏重，深灰更接近铅笔范字 */
 const INK: RGB = [0.1, 0.1, 0.11]
 
 const FRAME_W = 0.35
-const INNER_W = 0.2
+const INNER_W = 0.25
 const DASH = [1.4, 1.2] as const
 
 const CJK = /[㐀-鿿豈-﫿]/u
@@ -129,7 +130,8 @@ function planSlots(strokeCount: number, shape: Shape, cfg: Config): Slot[][] {
 function gridPrims(shape: Shape, cfg: Config): Prim[] {
   const { cols, rows, cell, x, y } = shape
   const { frame, inner } = GRID_COLORS[cfg.gridColor]
-  // 小格子上原尺寸的线宽和虚线会显得糊
+  // 小格子上原尺寸的线宽和虚线会显得糊。基准是 50mm，默认的 37.6mm 格子上 k = 0.75，
+  // 也就是上面那些线宽和虚线长度实际都要再打个七五折 —— 调 INNER_W 的时候记着这一层。
   const k = Math.min(1, Math.max(0.5, cell / 50))
   const dash = [DASH[0] * k, DASH[1] * k] as const
   const out: Prim[] = []
