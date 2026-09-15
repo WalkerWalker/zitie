@@ -25,6 +25,7 @@ console.log(
   `每行 ${shape.cols} 格 · ${shape.cell.toFixed(1)}mm · ${shape.cols}×${shape.rows} = ${shape.cols * shape.rows} 格/页 · ${pages.length} 页`,
 )
 for (const [char, entry] of data) console.log(`  ${char}: ${entry.strokes.length} 笔`)
+pages.forEach((p, i) => console.log(`  第 ${i + 1} 页: ${p.label}`))
 
 await writeFile(out, await buildPdf(pages))
 console.log('写入', out)

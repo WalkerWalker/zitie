@@ -113,10 +113,10 @@ function paint() {
   downloadBtn.disabled = pages.length === 0
 
   const shown = pages.slice(0, MAX_PREVIEW)
-  const sheets = shown.map((p) => {
-    const label = p.total > 1 ? `${p.char} ${p.index}/${p.total}` : p.char
-    return `<figure class="paper"><div class="page">${pageToSvg(p.prims)}</div><figcaption>${label}</figcaption></figure>`
-  })
+  const sheets = shown.map(
+    (p) =>
+      `<figure class="paper"><div class="page">${pageToSvg(p.prims)}</div><figcaption>${p.label}</figcaption></figure>`,
+  )
   if (pages.length > shown.length) {
     sheets.push(`<p class="more">还有 ${pages.length - shown.length} 页没预览，下载的 PDF 是完整的</p>`)
   }
@@ -129,7 +129,7 @@ async function download() {
   downloadBtn.textContent = '生成中…'
   try {
     const bytes = await buildPdf(pages)
-    const chars = [...new Set(pages.map((p) => p.char))]
+    const chars = [...new Set(pages.flatMap((p) => p.chars))]
     const url = URL.createObjectURL(new Blob([bytes as BlobPart], { type: 'application/pdf' }))
     const a = document.createElement('a')
     a.href = url

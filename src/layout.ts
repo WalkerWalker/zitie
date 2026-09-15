@@ -99,33 +99,46 @@ export function shapeOf(cfg: Config): Shape {
  * 一格里画什么：
  *   'ink'   全黑范字，照着看的，不用描
  *   数字 n  写到第 n 笔的样子，整个字都浅灰，可以描
- *   'blank' 空格，自己写
+ * 排不到的格子就是空的（下面的 Cell = null），自己写。
  * 整页只有一条规则：浅灰的就描，黑的不用动。
  */
-type Slot = 'ink' | 'blank' | number
+type Slot = 'ink' | number
 
 /**
- * 一个字排成若干页的格子序列：
- * 黑范字 → 每格多一笔 → 3 个整字（同一个灰）→ 剩下全是空格，自己写。
+ * 一个字要占的格子序列：黑范字 → 每格多一笔 → 3 个整字（同一个灰）。
  * 整字固定 3 个，不跟着页面大小变 —— 描完就该自己写了，多描没意义。
- * 一页只排一个字 —— 翻页就是换字。
  */
-function planSlots(strokeCount: number, shape: Shape, cfg: Config): Slot[][] {
-  const per = shape.cols * shape.rows
-  const seq: Slot[] = [
+function seqOf(strokeCount: number, cfg: Config): Slot[] {
+  return [
     'ink',
     ...Array.from({ length: strokeCount }, (_, i) => i + 1),
     ...Array.from({ length: cfg.fullCount }, () => strokeCount),
   ]
-
-  const pages: Slot[][] = []
-  for (let i = 0; i < seq.length; i += per) pages.push(seq.slice(i, i + per))
-
-  const last = pages[pages.length - 1]
-  while (last.length < per) last.push('blank')
-
-  return pages
 }
+
+/** 半页至少要这么多行，不然还是一页一个字。 */
+const MIN_BAND_ROWS = 4
+
+/** 页面切成的横块，一块放一个字。row0 是起始行。 */
+type Band = { row0: number; rows: number }
+
+/**
+ * 一页上下各放一个字 —— 每行 7 格有 10 行，一个字撑不满，空得太厉害。
+ * 但半页矮到只有 3 行就不值得切了：笔顺排完剩不下几格空的，还不如整页给一个字。
+ * 所以每行 6 / 7 / 8 格（半页 4–6 行）切两半，3 / 4 / 5 格不切。
+ * 行数是奇数时多出来的那行给下半页 —— 上半少、下半多。
+ */
+function bandsOf(shape: Shape): Band[] {
+  const top = Math.floor(shape.rows / 2)
+  if (top < MIN_BAND_ROWS) return [{ row0: 0, rows: shape.rows }]
+  return [
+    { row0: 0, rows: top },
+    { row0: top, rows: shape.rows - top },
+  ]
+}
+
+/** 一格的内容；null 就是空格。 */
+type Cell = { char: string; slot: Slot } | null
 
 function gridPrims(shape: Shape, cfg: Config): Prim[] {
   const { cols, rows, cell, x, y } = shape
@@ -163,7 +176,6 @@ function gridPrims(shape: Shape, cfg: Config): Prim[] {
 }
 
 function slotPrims(shape: Shape, idx: number, slot: Slot, strokes: string[], cfg: Config): Prim[] {
-  if (slot === 'blank') return []
   const cx = shape.x + (idx % shape.cols) * shape.cell
   const cy = shape.y + Math.floor(idx / shape.cols) * shape.cell
   const m = glyphMatrix(cx, cy, shape.cell, cfg.glyphRatio)
@@ -174,22 +186,67 @@ function slotPrims(shape: Shape, idx: number, slot: Slot, strokes: string[], cfg
   return use.map((s) => ({ kind: 'path' as const, d: transformPath(s, m), fill }))
 }
 
-export type Page = { char: string; index: number; total: number; prims: Prim[] }
+/** label 是预览用的标题，一页两个字就是两个字。 */
+export type Page = { chars: string[]; label: string; prims: Prim[] }
 
+/**
+ * 按顺序把字填进「块」：能占半页就占半页，占不下就独占一整页，
+ * 一整页还装不下（笔画特别多）就接着往下翻页。
+ */
 export function planPages(chars: string[], data: Map<string, CharData>, cfg: Config): Page[] {
   const shape = shapeOf(cfg)
   const grid = gridPrims(shape, cfg)
-  const pages: Page[] = []
+  const bands = bandsOf(shape)
+  const per = shape.cols * shape.rows
+
+  type Sheet = { chars: string[]; labels: string[]; cells: Cell[] }
+  const sheets: Sheet[] = []
+  // 大于等于 bands.length 表示「这页用完了」，下一个字得开新页
+  let band = bands.length
+
+  const open = (): Sheet => {
+    const sheet: Sheet = { chars: [], labels: [], cells: Array<Cell>(per).fill(null) }
+    sheets.push(sheet)
+    band = 0
+    return sheet
+  }
+  const put = (at: number, seq: Slot[], char: string, label: string) => {
+    const sheet = sheets[sheets.length - 1]
+    seq.forEach((slot, i) => (sheet.cells[at + i] = { char, slot }))
+    sheet.chars.push(char)
+    sheet.labels.push(label)
+  }
 
   for (const char of chars) {
     const entry = data.get(char)
     if (!entry) continue
-    const sheets = planSlots(entry.strokes.length, shape, cfg)
-    sheets.forEach((slots, i) => {
-      const prims = [...grid]
-      slots.forEach((slot, idx) => prims.push(...slotPrims(shape, idx, slot, entry.strokes, cfg)))
-      pages.push({ char, index: i + 1, total: sheets.length, prims })
-    })
+    const seq = seqOf(entry.strokes.length, cfg)
+
+    if (band >= bands.length) open()
+    const b = bands[band]
+
+    // 半页要装得下「这个字的全部格子 + 至少一整行空的」，不然不值得挤
+    if (bands.length > 1 && seq.length <= (b.rows - 1) * shape.cols) {
+      put(b.row0 * shape.cols, seq, char, char)
+      band++
+      continue
+    }
+
+    // 独占整页。上半页已经写了字就先翻页
+    if (band > 0) open()
+    const parts = Math.ceil(seq.length / per)
+    for (let i = 0; i < parts; i++) {
+      if (i > 0) open()
+      put(0, seq.slice(i * per, (i + 1) * per), char, parts > 1 ? `${char} ${i + 1}/${parts}` : char)
+    }
+    band = bands.length
   }
-  return pages
+
+  return sheets.map((sheet) => {
+    const prims = [...grid]
+    sheet.cells.forEach((cell, idx) => {
+      if (cell) prims.push(...slotPrims(shape, idx, cell.slot, data.get(cell.char)!.strokes, cfg))
+    })
+    return { chars: sheet.chars, label: sheet.labels.join('　'), prims }
+  })
 }
