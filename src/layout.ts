@@ -41,7 +41,7 @@ export type Config = {
 }
 
 export const DEFAULTS: Config = {
-  cols: 5,
+  cols: 7,
   marginMm: 11,
   glyphRatio: 0.72,
   gridType: 'mi',
@@ -116,25 +116,39 @@ function seqOf(strokeCount: number, cfg: Config): Slot[] {
   ]
 }
 
-/** 半页至少要这么多行，不然还是一页一个字。 */
-const MIN_BAND_ROWS = 4
-
 /** 页面切成的横块，一块放一个字。row0 是起始行。 */
 type Band = { row0: number; rows: number }
 
 /**
- * 一页上下各放一个字 —— 每行 7 格有 10 行，一个字撑不满，空得太厉害。
- * 但半页矮到只有 3 行就不值得切了：笔顺排完剩不下几格空的，还不如整页给一个字。
- * 所以每行 6 / 7 / 8 格（半页 4–6 行）切两半，3 / 4 / 5 格不切。
- * 行数是奇数时多出来的那行给下半页 —— 上半少、下半多。
+ * 一页横着切成几块，一块放一个字 —— 格子调小之后一页有七八十格，
+ * 一个字撑不满，空得太厉害。
+ *
+ * 块数没有写死，也不是一个选项：切到「最矮的那块还装得下这批字里最难的那个字」为止。
+ * 一个字要占的是自己的全部格子，再加至少一整行空的 —— 不然没地方自己写。
+ * 于是简单的字排得密、笔画多的字排得松，而同一份里每页结构完全一样。
+ *
+ * 行数除不尽时余下的行给靠后的块（上面的矮、下面的高）。
+ * 每行 7 格 = 10 行、一般的字切三块，正好是 3 / 3 / 4。
  */
-function bandsOf(shape: Shape): Band[] {
-  const top = Math.floor(shape.rows / 2)
-  if (top < MIN_BAND_ROWS) return [{ row0: 0, rows: shape.rows }]
-  return [
-    { row0: 0, rows: top },
-    { row0: top, rows: shape.rows - top },
-  ]
+function bandsOf(shape: Shape, maxSeq: number): Band[] {
+  const need = maxSeq + shape.cols // 全部格子 + 一整行空的
+  let k = 1
+  for (let n = shape.rows; n > 1; n--) {
+    if (Math.floor(shape.rows / n) * shape.cols >= need) {
+      k = n
+      break
+    }
+  }
+
+  const base = Math.floor(shape.rows / k)
+  const extra = shape.rows % k
+  const bands: Band[] = []
+  for (let i = 0, row0 = 0; i < k; i++) {
+    const rows = base + (i >= k - extra ? 1 : 0)
+    bands.push({ row0, rows })
+    row0 += rows
+  }
+  return bands
 }
 
 /** 一格的内容；null 就是空格。 */
@@ -190,14 +204,20 @@ function slotPrims(shape: Shape, idx: number, slot: Slot, strokes: string[], cfg
 export type Page = { chars: string[]; label: string; prims: Prim[] }
 
 /**
- * 按顺序把字填进「块」：能占半页就占半页，占不下就独占一整页，
- * 一整页还装不下（笔画特别多）就接着往下翻页。
+ * 按顺序把字填进「块」，一块一个字。块的高度是按这批字里最难的那个算的，
+ * 所以除非一整页都装不下（笔画特别多、格子特别大），每个字都放得进自己那一块。
  */
 export function planPages(chars: string[], data: Map<string, CharData>, cfg: Config): Page[] {
   const shape = shapeOf(cfg)
   const grid = gridPrims(shape, cfg)
-  const bands = bandsOf(shape)
   const per = shape.cols * shape.rows
+
+  const seqs = new Map<string, Slot[]>()
+  for (const char of chars) {
+    const entry = data.get(char)
+    if (entry) seqs.set(char, seqOf(entry.strokes.length, cfg))
+  }
+  const bands = bandsOf(shape, Math.max(0, ...[...seqs.values()].map((s) => s.length)))
 
   type Sheet = { chars: string[]; labels: string[]; cells: Cell[] }
   const sheets: Sheet[] = []
@@ -218,21 +238,19 @@ export function planPages(chars: string[], data: Map<string, CharData>, cfg: Con
   }
 
   for (const char of chars) {
-    const entry = data.get(char)
-    if (!entry) continue
-    const seq = seqOf(entry.strokes.length, cfg)
+    const seq = seqs.get(char)
+    if (!seq) continue
 
     if (band >= bands.length) open()
     const b = bands[band]
 
-    // 半页要装得下「这个字的全部格子 + 至少一整行空的」，不然不值得挤
-    if (bands.length > 1 && seq.length <= (b.rows - 1) * shape.cols) {
+    if (seq.length <= b.rows * shape.cols) {
       put(b.row0 * shape.cols, seq, char, char)
       band++
       continue
     }
 
-    // 独占整页。上半页已经写了字就先翻页
+    // 只有「一整页都装不下」才会走到这儿。前面的块已经写了字就先翻页
     if (band > 0) open()
     const parts = Math.ceil(seq.length / per)
     for (let i = 0; i < parts; i++) {

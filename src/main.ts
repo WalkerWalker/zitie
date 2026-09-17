@@ -3,7 +3,8 @@ import { get, loadChars, type CharData } from './strokeData.ts'
 import { pageToSvg } from './renderSvg.ts'
 import { buildPdf } from './renderPdf.ts'
 
-const LS_KEY = 'zitie.v6'
+// 改默认值就得换 key，不然老用户的存档会一直盖掉新默认（这次是每行 5 格 → 7 格）
+const LS_KEY = 'zitie.v7'
 const MAX_PREVIEW = 12
 
 /**
@@ -108,7 +109,8 @@ async function refresh() {
 }
 
 function paint() {
-  info.textContent = pages.length ? `共 ${pages.length} 页` : ''
+  const perPage = pages.length ? Math.max(...pages.map((p) => p.chars.length)) : 0
+  info.textContent = pages.length ? `共 ${pages.length} 页${perPage > 1 ? ` · 一页 ${perPage} 个字` : ''}` : ''
   charnote.textContent = missing.length ? `字库里没有：${missing.join(' ')}` : ''
   downloadBtn.disabled = pages.length === 0
 
