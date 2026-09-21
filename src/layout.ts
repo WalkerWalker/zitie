@@ -268,3 +268,46 @@ export function planPages(chars: string[], data: Map<string, CharData>, cfg: Con
     return { chars: sheet.chars, label: sheet.labels.join('　'), prims }
   })
 }
+
+/**
+ * 数字页：**一行一个数**，跟汉字页是两套排法。
+ *
+ * 汉字要拆笔顺，所以一个字要占一长串格子、一页只放得下两三个；
+ * 数字没有笔顺可拆（字库里也根本没有阿拉伯数字，字形是 `scripts/gen-digits.py` 从字体抠的），
+ * 一个数就是一格，横着排一行正好。于是每行 7 格 = 10 行，1-10 正好一页。
+ *
+ * 多位数一位占一格：`10` 占两格，一行放得下几个**整数**就放几个
+ * —— 半个数不能印，所以 7 格只放得下 3 个「10」，剩的那格空着。
+ */
+export function planNumberPages(numbers: number[], digits: Record<string, string>, cfg: Config): Page[] {
+  const shape = shapeOf(cfg)
+  const grid = gridPrims(shape, cfg)
+  const pages: Page[] = []
+
+  for (let i = 0; i < numbers.length; i += shape.rows) {
+    const rows = numbers.slice(i, i + shape.rows)
+    const prims = [...grid]
+
+    rows.forEach((n, r) => {
+      const text = String(n)
+      const fit = Math.floor(shape.cols / text.length)
+      // 跟汉字那边同一个道理：描几个就够了，剩下的格子留着自己写（fit - 2 就是留出这一个空的）。
+      // 但**至少要有一个能描的** —— 位数一多就放不下几个了，
+      // 7 格排「100」只放得下两个，宁可不留空也不能整行只剩个黑范字、没地方下笔。
+      const traces = fit >= 2 ? Math.max(1, Math.min(cfg.fullCount, fit - 2)) : 0
+
+      for (let copy = 0; copy <= traces; copy++) {
+        for (let d = 0; d < text.length; d++) {
+          const idx = r * shape.cols + copy * text.length + d
+          // 第一个是黑范字，后面的浅灰可描 —— 整页仍然只有那一条规则
+          prims.push(...slotPrims(shape, idx, copy === 0 ? 'ink' : 1, [digits[text[d]]], cfg))
+        }
+      }
+    })
+
+    const label = rows.length > 1 ? `${rows[0]} – ${rows[rows.length - 1]}` : String(rows[0])
+    pages.push({ chars: rows.map(String), label, prims })
+  }
+
+  return pages
+}
