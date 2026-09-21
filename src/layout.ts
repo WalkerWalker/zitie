@@ -120,25 +120,26 @@ function seqOf(strokeCount: number, cfg: Config): Slot[] {
 type Band = { row0: number; rows: number }
 
 /**
+ * 一块至少几行。**这是用户定的规格，不是算出来的**：
+ * 「十行里 3 行，3 行，4 行」—— 所以 10 行切三块，一块 3 行起。
+ */
+const MIN_BAND_ROWS = 3
+
+/**
  * 一页横着切成几块，一块放一个字 —— 格子调小之后一页有七八十格，
  * 一个字撑不满，空得太厉害。
  *
- * 块数没有写死，也不是一个选项：切到「最矮的那块还装得下这批字里最难的那个字」为止。
- * 一个字要占的是自己的全部格子，再加至少一整行空的 —— 不然没地方自己写。
- * 于是简单的字排得密、笔画多的字排得松，而同一份里每页结构完全一样。
+ * **块数只看页面，不看写的是什么字**：`floor(行数 / 3)`，行数除不尽时余下的行给靠后的块。
+ * 每行 7 格 = 10 行 → 3 / 3 / 4，8 格 = 11 行 → 3 / 4 / 4。
  *
- * 行数除不尽时余下的行给靠后的块（上面的矮、下面的高）。
- * 每行 7 格 = 10 行、一般的字切三块，正好是 3 / 3 / 4。
+ * 之前这里是「切到最矮的那块还装得下这批字里最难的那个字为止」，听着聪明，实际是个坑：
+ * 门槛卡在 10 笔，而谢想就道跑唱猫教这些日常字都超了，
+ * 于是随便输一个词就退回一页两个字 —— 用户（奶奶）只知道说好的 3/3/4 没出现，
+ * 不可能猜到是某个字笔画多拖累了整份。**排版得看得见地稳定，不能被输入悄悄改掉。**
+ * 装不下的字现在自己占一整页（见 planPages），坏的只是那一个字，不再拖垮全部。
  */
-function bandsOf(shape: Shape, maxSeq: number): Band[] {
-  const need = maxSeq + shape.cols // 全部格子 + 一整行空的
-  let k = 1
-  for (let n = shape.rows; n > 1; n--) {
-    if (Math.floor(shape.rows / n) * shape.cols >= need) {
-      k = n
-      break
-    }
-  }
+function bandsOf(shape: Shape): Band[] {
+  const k = Math.max(1, Math.floor(shape.rows / MIN_BAND_ROWS))
 
   const base = Math.floor(shape.rows / k)
   const extra = shape.rows % k
@@ -217,7 +218,7 @@ export function planPages(chars: string[], data: Map<string, CharData>, cfg: Con
     const entry = data.get(char)
     if (entry) seqs.set(char, seqOf(entry.strokes.length, cfg))
   }
-  const bands = bandsOf(shape, Math.max(0, ...[...seqs.values()].map((s) => s.length)))
+  const bands = bandsOf(shape)
 
   type Sheet = { chars: string[]; labels: string[]; cells: Cell[] }
   const sheets: Sheet[] = []
