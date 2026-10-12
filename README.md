@@ -230,6 +230,10 @@ cd dist && git init -b gh-pages && git add -A && git commit -m build
 git push -f https://github.com/WalkerWalker/zitie.git HEAD:gh-pages
 ```
 
+**上面这串只更新网站，不碰源码** —— `main` 要另外 `git push origin main`。
+漏了的话线上是新的、GitHub 上的源码是旧的，下次从仓库接着做就会捡到旧代码（踩过一次）。
+推完对一下：`git rev-parse HEAD origin/main` 两个要一样。
+
 `vite.config.ts` 里 `base` 只在 `command === 'build'` 时是 `/zitie/`，本地 dev 保持 `/`。
 `dist/.nojekyll` 是给 Pages 用的，不然 Jekyll 会吞掉下划线开头的文件。
 
