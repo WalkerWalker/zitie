@@ -116,42 +116,6 @@ function seqOf(strokeCount: number, cfg: Config): Slot[] {
   ]
 }
 
-/** 页面切成的横块，一块放一个字。row0 是起始行。 */
-type Band = { row0: number; rows: number }
-
-/**
- * 一块至少几行。**这是用户定的规格，不是算出来的**：
- * 「十行里 3 行，3 行，4 行」—— 所以 10 行切三块，一块 3 行起。
- */
-const MIN_BAND_ROWS = 3
-
-/**
- * 一页横着切成几块，一块放一个字 —— 格子调小之后一页有七八十格，
- * 一个字撑不满，空得太厉害。
- *
- * **块数只看页面，不看写的是什么字**：`floor(行数 / 3)`，行数除不尽时余下的行给靠后的块。
- * 每行 7 格 = 10 行 → 3 / 3 / 4，8 格 = 11 行 → 3 / 4 / 4。
- *
- * 之前这里是「切到最矮的那块还装得下这批字里最难的那个字为止」，听着聪明，实际是个坑：
- * 门槛卡在 10 笔，而谢想就道跑唱猫教这些日常字都超了，
- * 于是随便输一个词就退回一页两个字 —— 用户（奶奶）只知道说好的 3/3/4 没出现，
- * 不可能猜到是某个字笔画多拖累了整份。**排版得看得见地稳定，不能被输入悄悄改掉。**
- * 装不下的字现在自己占一整页（见 planPages），坏的只是那一个字，不再拖垮全部。
- */
-function bandsOf(shape: Shape): Band[] {
-  const k = Math.max(1, Math.floor(shape.rows / MIN_BAND_ROWS))
-
-  const base = Math.floor(shape.rows / k)
-  const extra = shape.rows % k
-  const bands: Band[] = []
-  for (let i = 0, row0 = 0; i < k; i++) {
-    const rows = base + (i >= k - extra ? 1 : 0)
-    bands.push({ row0, rows })
-    row0 += rows
-  }
-  return bands
-}
-
 /** 一格的内容；null 就是空格。 */
 type Cell = { char: string; slot: Slot } | null
 
@@ -201,65 +165,71 @@ function slotPrims(shape: Shape, idx: number, slot: Slot, strokes: string[], cfg
   return use.map((s) => ({ kind: 'path' as const, d: transformPath(s, m), fill }))
 }
 
-/** label 是预览用的标题，一页两个字就是两个字。 */
+/** label 是预览用的标题。 */
 export type Page = { chars: string[]; label: string; prims: Prim[] }
 
 /**
- * 按顺序把字填进「块」，一块一个字。块的高度是按这批字里最难的那个算的，
- * 所以除非一整页都装不下（笔画特别多、格子特别大），每个字都放得进自己那一块。
+ * 按顺序一字至少两行，所以十行最多五字、九行最多四字。
+ * 笔画多的字再占足够的行；剩余行从后往前分给各字。
  */
 export function planPages(chars: string[], data: Map<string, CharData>, cfg: Config): Page[] {
   const shape = shapeOf(cfg)
   const grid = gridPrims(shape, cfg)
   const per = shape.cols * shape.rows
-
-  const seqs = new Map<string, Slot[]>()
-  for (const char of chars) {
-    const entry = data.get(char)
-    if (entry) seqs.set(char, seqOf(entry.strokes.length, cfg))
-  }
-  const bands = bandsOf(shape)
-
+  const maxBands = Math.max(1, Math.floor(shape.rows / 2))
   type Sheet = { chars: string[]; labels: string[]; cells: Cell[] }
   const sheets: Sheet[] = []
-  // 大于等于 bands.length 表示「这页用完了」，下一个字得开新页
-  let band = bands.length
-
   const open = (): Sheet => {
     const sheet: Sheet = { chars: [], labels: [], cells: Array<Cell>(per).fill(null) }
     sheets.push(sheet)
-    band = 0
     return sheet
   }
-  const put = (at: number, seq: Slot[], char: string, label: string) => {
-    const sheet = sheets[sheets.length - 1]
+  const put = (sheet: Sheet, at: number, seq: Slot[], char: string, label: string) => {
     seq.forEach((slot, i) => (sheet.cells[at + i] = { char, slot }))
     sheet.chars.push(char)
     sheet.labels.push(label)
   }
 
+  type Pending = { char: string; seq: Slot[]; rows: number }
+  let pending: Pending[] = []
+  let usedRows = 0
+  const flush = () => {
+    if (!pending.length) return
+    const sheet = open()
+    const heights = pending.map((item) => item.rows)
+    // 空行给靠后的字，默认 7×10 且五个短笔画字时就是 2 / 2 / 2 / 2 / 2。
+    for (let i = 0; i < shape.rows - usedRows; i++) {
+      heights[pending.length - 1 - (i % pending.length)]++
+    }
+    let row0 = 0
+    pending.forEach((item, i) => {
+      put(sheet, row0 * shape.cols, item.seq, item.char, item.char)
+      row0 += heights[i]
+    })
+    pending = []
+    usedRows = 0
+  }
+
   for (const char of chars) {
-    const seq = seqs.get(char)
-    if (!seq) continue
+    const entry = data.get(char)
+    if (!entry) continue
+    const seq = seqOf(entry.strokes.length, cfg)
+    const rows = Math.max(2, Math.ceil(seq.length / shape.cols))
 
-    if (band >= bands.length) open()
-    const b = bands[band]
-
-    if (seq.length <= b.rows * shape.cols) {
-      put(b.row0 * shape.cols, seq, char, char)
-      band++
+    if (rows > shape.rows) {
+      flush()
+      const parts = Math.ceil(seq.length / per)
+      for (let i = 0; i < parts; i++) {
+        const sheet = open()
+        put(sheet, 0, seq.slice(i * per, (i + 1) * per), char, parts > 1 ? `${char} ${i + 1}/${parts}` : char)
+      }
       continue
     }
-
-    // 只有「一整页都装不下」才会走到这儿。前面的块已经写了字就先翻页
-    if (band > 0) open()
-    const parts = Math.ceil(seq.length / per)
-    for (let i = 0; i < parts; i++) {
-      if (i > 0) open()
-      put(0, seq.slice(i * per, (i + 1) * per), char, parts > 1 ? `${char} ${i + 1}/${parts}` : char)
-    }
-    band = bands.length
+    if (pending.length === maxBands || usedRows + rows > shape.rows) flush()
+    pending.push({ char, seq, rows })
+    usedRows += rows
   }
+  flush()
 
   return sheets.map((sheet) => {
     const prims = [...grid]
@@ -273,7 +243,7 @@ export function planPages(chars: string[], data: Map<string, CharData>, cfg: Con
 /**
  * 数字页：**一行一个数**，跟汉字页是两套排法。
  *
- * 汉字要拆笔顺，所以一个字要占一长串格子、一页只放得下两三个；
+ * 汉字要拆笔顺，所以一个字要占一长串格子、一页只放得下几个；
  * 数字没有笔顺可拆（字库里也根本没有阿拉伯数字，字形是 `scripts/gen-digits.py` 从字体抠的），
  * 一个数就是一格，横着排一行正好。于是每行 7 格 = 10 行，1-10 正好一页。
  *
